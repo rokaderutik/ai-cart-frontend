@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+test-results
+playwright-report
+.git
+.github
+.agents
+.codex
+.aws
+.vscode
+.idea
+.env
+.env.*
+*.log
+AI-Cart-Development-Phases.txt
