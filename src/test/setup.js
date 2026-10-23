@@ -7,6 +7,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => {
   cleanup()
   server.resetHandlers()
+  sessionStorage.clear()
   vi.useRealTimers()
 })
 afterAll(() => server.close())

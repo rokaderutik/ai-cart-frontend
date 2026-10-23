@@ -15,6 +15,30 @@ apiClient.interceptors.request.use((config) => {
 })
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.status === 204) return undefined
+    const envelope = response?.data
+    if (envelope?.error) {
+      throw new ApiError(
+        'http',
+        envelope.error?.message ||
+          'The service could not complete the request.',
+        response.status,
+        undefined,
+        envelope.error,
+      )
+    }
+    if (
+      !envelope ||
+      typeof envelope !== 'object' ||
+      !Object.hasOwn(envelope, 'data')
+    ) {
+      throw new ApiError(
+        'protocol',
+        'The service returned an unexpected response. Please try again.',
+      )
+    }
+    return envelope.data
+  },
   (error) => Promise.reject(normalizeApiError(error)),
 )

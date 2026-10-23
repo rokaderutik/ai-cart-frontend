@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-ARG VITE_API_BASE_URL=https://ai-cart-backend.onrender.com
+ARG VITE_API_BASE_URL=https://ai-cart-backend.onrender.com/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
@@ -20,7 +20,7 @@ COPY --from=builder /app ./
 RUN npm install
 
 # The runtime stage has its own environment and serves source through Vite.
-ARG VITE_API_BASE_URL=https://ai-cart-backend.onrender.com
+ARG VITE_API_BASE_URL=https://ai-cart-backend.onrender.com/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 EXPOSE 3000

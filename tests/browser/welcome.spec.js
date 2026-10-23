@@ -1,6 +1,37 @@
 import { expect, test } from '@playwright/test'
 
 const healthUrl = 'https://ai-cart-backend.onrender.com/api/v1/health'
+const base = 'https://ai-cart-backend.onrender.com/api/v1'
+const envelope = (data) => ({
+  data,
+  error: null,
+  timestamp: new Date().toISOString(),
+})
+
+test.beforeEach(async ({ page }) => {
+  await page.route(`${base}/sessions`, (route) =>
+    route.fulfill({
+      json: envelope({
+        sessionId: 'SESSION_browser',
+        expiresAt: '2099-01-01T00:00:00Z',
+      }),
+      status: 201,
+    }),
+  )
+  await page.route(`${base}/cart`, (route) =>
+    route.fulfill({
+      json: envelope({
+        cartId: 'CART_browser',
+        items: [],
+        total: 0,
+        currency: 'INR',
+      }),
+    }),
+  )
+  await page.route(`${base}/chat/messages*`, (route) =>
+    route.fulfill({ json: envelope({ messages: [], nextBefore: null }) }),
+  )
+})
 
 for (const width of [320, 390, 768, 1440]) {
   test(`welcome fits ${width}px and permits keyboard chat entry`, async ({
@@ -10,7 +41,7 @@ for (const width of [320, 390, 768, 1440]) {
     page.on('pageerror', (error) => errors.push(error.message))
     await page.setViewportSize({ width, height: 1000 })
     await page.route(healthUrl, (route) =>
-      route.fulfill({ status: 200, body: 'healthy' }),
+      route.fulfill({ status: 200, json: envelope({ status: 'UP' }) }),
     )
     await page.goto('/')
     await expect(page.getByRole('status')).toContainText('AI Cart is ready')
@@ -35,14 +66,24 @@ for (const width of [320, 390, 768, 1440]) {
     ).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL('/chat')
+    await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
     await expect(
-      page.getByText(/messaging will arrive in a later phase/),
-    ).toBeVisible()
+      page.getByRole('textbox', { name: 'Message AI Cart' }),
+    ).toBeDisabled()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: `test-results/chat-${width}.png`,
+      fullPage: true,
+    })
     expect(errors).toEqual([])
   })
 }
 
-test('direct chat visits stay gated until readiness, without other API calls', async ({
+test('direct chat visits initialize a session only after readiness', async ({
   page,
 }) => {
   let release
@@ -56,18 +97,19 @@ test('direct chat visits stay gated until readiness, without other API calls', a
   })
   await page.route(healthUrl, async (route) => {
     await pending
-    await route.fulfill({ status: 204 })
+    await route.fulfill({ status: 200, json: envelope({ status: 'UP' }) })
   })
   await page.goto('/chat')
   await expect(
     page.getByRole('button', { name: 'Continue to chat' }),
   ).toBeDisabled()
-  await expect(page.getByText(/messaging will arrive/)).toHaveCount(0)
-  release()
-  await expect(
-    page.getByText(/messaging will arrive in a later phase/),
-  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your cart' })).toHaveCount(0)
   expect(apiRequests).toEqual([healthUrl])
+  release()
+  await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
+  expect(apiRequests).toContain(`${base}/sessions`)
+  expect(apiRequests).toContain(`${base}/cart`)
+  expect(apiRequests).toContain(`${base}/chat/messages?limit=50`)
   await page.screenshot({
     path: 'test-results/chat-desktop.png',
     fullPage: true,
@@ -100,7 +142,7 @@ test('cold-start copy, failure deadline, reduced motion and retry', async ({
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
   await page.unroute(healthUrl)
   await page.route(healthUrl, (route) =>
-    route.fulfill({ status: 200, body: '{}' }),
+    route.fulfill({ status: 200, json: envelope({ status: 'UP' }) }),
   )
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect(
@@ -110,7 +152,7 @@ test('cold-start copy, failure deadline, reduced motion and retry', async ({
 
 test('unknown route returns home', async ({ page }) => {
   await page.route(healthUrl, (route) =>
-    route.fulfill({ status: 200, body: '{}' }),
+    route.fulfill({ status: 200, json: envelope({ status: 'UP' }) }),
   )
   await page.goto('/missing')
   await expect(

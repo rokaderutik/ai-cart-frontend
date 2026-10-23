@@ -13,6 +13,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
+    env: { VITE_API_BASE_URL: 'https://ai-cart-backend.onrender.com/api/v1' },
     command: 'npm run dev -- --host localhost --port 5173 --strictPort',
     url: 'http://localhost:5173',
     reuseExistingServer: true,

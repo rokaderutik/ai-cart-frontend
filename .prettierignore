@@ -5,4 +5,6 @@ test-results
 playwright-report
 package-lock.json
 AI-Cart-Development-Phases.txt
+# Backend-owned reference document; preserve the supplied contract verbatim.
+FRONTEND-API.md
 .env*

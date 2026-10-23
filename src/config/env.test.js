@@ -8,6 +8,7 @@ describe('environment configuration', () => {
     'invalid',
     'ftp://example.com',
     'https://example.com/api',
+    'https://example.com',
     'https://user:pass@example.com',
     'https://example.com?token=x',
   ])('rejects %s', (value) => {
@@ -17,13 +18,13 @@ describe('environment configuration', () => {
     })
   })
 
-  it('normalizes a backend origin', () => {
+  it('normalizes the versioned API base URL', () => {
     expect(
       readEnvironment({
-        VITE_API_BASE_URL: ' https://ai-cart-backend.onrender.com/ ',
+        VITE_API_BASE_URL: ' https://ai-cart-backend.onrender.com/api/v1/ ',
       }),
     ).toEqual({
-      apiBaseUrl: 'https://ai-cart-backend.onrender.com',
+      apiBaseUrl: 'https://ai-cart-backend.onrender.com/api/v1',
       error: null,
     })
   })

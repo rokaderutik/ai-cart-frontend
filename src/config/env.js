@@ -17,11 +17,11 @@ export function readEnvironment(values = import.meta.env) {
       url.password ||
       url.search ||
       url.hash ||
-      url.pathname !== '/'
+      !['/api/v1', '/api/v1/'].includes(url.pathname)
     ) {
-      throw new Error('Invalid backend origin')
+      throw new Error('Invalid API base URL')
     }
-    return { apiBaseUrl: url.origin, error: null }
+    return { apiBaseUrl: `${url.origin}/api/v1`, error: null }
   } catch {
     return {
       apiBaseUrl: null,

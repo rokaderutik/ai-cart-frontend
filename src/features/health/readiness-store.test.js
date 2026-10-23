@@ -12,7 +12,7 @@ describe('backend wake-up lifecycle', () => {
     expect(store.getSnapshot().status).toBe('failed')
   })
 
-  it('shares one operation and accepts any successful body', async () => {
+  it('shares one operation after the endpoint validates readiness', async () => {
     const check = vi.fn().mockResolvedValue(undefined)
     const store = makeStore(check)
     const first = store.ensureReady()

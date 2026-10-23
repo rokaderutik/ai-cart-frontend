@@ -64,6 +64,11 @@
   ::selection {
     background: #efd9c7;
   }
+  textarea:focus-visible,
+  summary:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 4px;
+  }
 }
 
 .display-heading {

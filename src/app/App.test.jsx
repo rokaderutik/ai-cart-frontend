@@ -6,15 +6,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { AppRoutes } from './router'
 import { ReadinessProvider } from './ReadinessProvider'
+import { SessionProvider } from './SessionProvider'
 import { createReadinessStore } from '@/features/health/readiness-store'
-import { server, HEALTH_URL } from '@/test/server'
+import { server, HEALTH_URL, envelope } from '@/test/server'
 
 function renderApp(path = '/', store) {
   return render(
     <StrictMode>
       <MemoryRouter initialEntries={[path]}>
         <ReadinessProvider store={store}>
-          <AppRoutes />
+          <SessionProvider>
+            <AppRoutes />
+          </SessionProvider>
         </ReadinessProvider>
       </MemoryRouter>
     </StrictMode>,
@@ -35,7 +38,7 @@ describe('welcome and chat readiness gate', () => {
     expect(screen.getByRole('status')).toHaveTextContent('AI Cart is ready')
     await user.click(link)
     expect(
-      screen.getByText(/messaging will arrive in a later phase/),
+      await screen.findByRole('heading', { name: /Good taste starts here/ }),
     ).toBeInTheDocument()
   })
 
@@ -52,7 +55,9 @@ describe('welcome and chat readiness gate', () => {
       configurationError: null,
     })
     renderApp('/chat', store)
-    expect(screen.queryByText(/messaging will arrive/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /next favorite/ }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Continue to chat' }),
     ).toBeDisabled()
@@ -61,7 +66,7 @@ describe('welcome and chat readiness gate', () => {
       resolve()
     })
     expect(
-      screen.getByText(/messaging will arrive in a later phase/),
+      screen.getByRole('heading', { name: /next favorite/ }),
     ).toBeInTheDocument()
     expect(checkHealth).toHaveBeenCalledTimes(1)
   })
@@ -104,7 +109,7 @@ describe('welcome and chat readiness gate', () => {
       screen.queryByRole('link', { name: 'Continue to chat' }),
     ).not.toBeInTheDocument()
     server.use(
-      http.get(HEALTH_URL, () => HttpResponse.json({ anything: true })),
+      http.get(HEALTH_URL, () => HttpResponse.json(envelope({ status: 'UP' }))),
     )
     await user.click(retry)
     expect(
@@ -131,12 +136,16 @@ describe('welcome and chat readiness gate', () => {
     await store.ensureReady()
     await vi.advanceTimersByTimeAsync(30_001)
     renderApp('/chat', store)
-    expect(screen.queryByText(/messaging will arrive/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /next favorite/ }),
+    ).not.toBeInTheDocument()
     await act(async () => {
       await Promise.resolve()
       resolve()
     })
-    expect(screen.getByText(/messaging will arrive/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /next favorite/ }),
+    ).toBeInTheDocument()
     expect(checkHealth).toHaveBeenCalledTimes(2)
   })
 

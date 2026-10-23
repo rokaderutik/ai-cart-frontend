@@ -15,6 +15,7 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   test: {
+    env: { VITE_API_BASE_URL: 'https://ai-cart-backend.onrender.com/api/v1' },
     environment: 'jsdom',
     environmentOptions: {
       jsdom: { url: 'https://ai-cart-backend.onrender.com/' },
