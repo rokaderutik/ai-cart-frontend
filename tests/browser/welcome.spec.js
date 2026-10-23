@@ -66,10 +66,9 @@ for (const width of [320, 390, 768, 1440]) {
     ).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL('/chat')
-    await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
     await expect(
       page.getByRole('textbox', { name: 'Message AI Cart' }),
-    ).toBeDisabled()
+    ).toBeEnabled()
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -106,7 +105,9 @@ test('direct chat visits initialize a session only after readiness', async ({
   await expect(page.getByRole('heading', { name: 'Your cart' })).toHaveCount(0)
   expect(apiRequests).toEqual([healthUrl])
   release()
-  await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
+  await expect(
+    page.getByRole('textbox', { name: 'Message AI Cart' }),
+  ).toBeEnabled()
   expect(apiRequests).toContain(`${base}/sessions`)
   expect(apiRequests).toContain(`${base}/cart`)
   expect(apiRequests).toContain(`${base}/chat/messages?limit=50`)

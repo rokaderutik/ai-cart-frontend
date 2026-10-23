@@ -87,7 +87,7 @@ describe('stage 2 session experience', () => {
     expect(sessionStorage.getItem(SESSION_STORAGE_KEY)).toBe(TEST_SESSION)
     expect(
       screen.getByRole('textbox', { name: 'Message AI Cart' }),
-    ).toBeDisabled()
+    ).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
 
@@ -106,6 +106,9 @@ describe('stage 2 session experience', () => {
     await screen.findByText('Something mild, please.')
     expect(screen.getByText('Paneer Butter Masala')).toBeInTheDocument()
     await user.click(screen.getByText(/Supporting sources/))
+    await user.click(
+      screen.getByRole('button', { name: 'View source: Menu evidence' }),
+    )
     expect(
       screen.getByText('Paneer with tomato, butter and cream.'),
     ).toBeVisible()

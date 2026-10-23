@@ -74,7 +74,7 @@ export function WelcomePage() {
               variant="outline"
               className="rounded-full bg-transparent text-[9px] font-normal text-muted-foreground"
             >
-              Coming soon
+              Made for your appetite
             </Badge>
           </div>
           <ArrowDown

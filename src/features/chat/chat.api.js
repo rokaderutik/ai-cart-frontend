@@ -41,7 +41,9 @@ export async function sendMessage({ sessionId, requestId, message, signal }) {
     },
   )
   requireContract(
-    data?.requestId === requestId && typeof data?.reply === 'string',
+    data?.requestId === requestId &&
+      typeof data?.reply === 'string' &&
+      data?.assistantMessageId != null,
   )
   validateCart(data?.cart)
   return data

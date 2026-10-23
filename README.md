@@ -8,7 +8,7 @@ A restaurant assistant for discovering dishes, inspecting recommendation sources
 
 ## Current phase
 
-Stage 2 builds on the Phase 1 welcome and backend wake-up gate. Entering chat creates or restores an anonymous session, loads conversation history and the current cart, and provides a confirmed New Session reset. The responsive chat shell displays restored messages, recommendation details, and source evidence. **Sending messages and editing the cart remain disabled until Stage 3.**
+Stage 3 enables the complete normal conversation flow on top of the welcome/readiness and session foundation: sequential chat, source-backed recommendations, follow-ups, manual cart controls, and conversational cart changes. The current session and cart are restored on refresh. Desktop shows the cart alongside the conversation; mobile provides a cart drawer. History pagination and broader failure/deployment verification remain Stage 4 work.
 
 React calls Spring Boot, which owns PostgreSQL/pgvector, retrieval, AI-provider calls, sessions, conversation persistence, and authoritative cart totals. Database and AI-provider credentials do not belong in this frontend.
 
@@ -47,8 +47,8 @@ src/
   config/              Environment validation
   features/health/     Endpoint, wake-up store, hook, status panel
   features/session/    Session endpoints, tab token, startup/reset lifecycle
-  features/chat/       Chat/history endpoints and restored message rendering
-  features/cart/       Cart endpoints and authoritative read-only summary
+  features/chat/       Chat actions, composer, messages, recommendations, sources
+  features/cart/       Cart endpoints, quantity controls, responsive cart drawer
   layouts/             Header, main content, footer
   pages/               Welcome, conversation shell, not-found
   lib/                 Shared utilities
@@ -77,9 +77,9 @@ const data = await getHealth({ signal: controller.signal })
 // controller.abort() cancels work that is no longer needed.
 ```
 
-The shared Axios client supplies the versioned API base, JSON acceptance, a 15-second default timeout, and normalized errors. Health overrides the timeout to 60 seconds. The prepared chat endpoint uses 120 seconds as an initial client wait budget; model latency must be verified during Stage 3. Timeouts never prove a backend mutation failed. `ApiError` exposes `kind`, `status`, `code`, `message`, and `errors`. Cancellation is distinct from connection failure. Invalid configuration blocks dispatch and displays setup guidance.
+The shared Axios client supplies the versioned API base, JSON acceptance, a 15-second default timeout, and normalized errors. Health overrides the timeout to 60 seconds; chat allows 120 seconds for model latency. Timeouts never prove a backend mutation failed. `ApiError` exposes `kind`, `status`, `code`, `message`, and `errors`. Cancellation is distinct from connection failure. Invalid configuration blocks dispatch and displays setup guidance.
 
-There are no global automatic retries, cookie credentials, or authentication redirects. Protected endpoint functions explicitly attach `X-Session-Id`; health and session creation never receive that header. Cart PUT and chat POST functions are prepared for Stage 3 but are not called by this stage's UI.
+There are no global automatic retries, cookie credentials, or authentication redirects. Protected endpoint functions explicitly attach `X-Session-Id`; health and session creation never receive that header. Chat and cart requests pass through endpoint functions and the shared session state; components do not call Axios directly.
 
 ## Anonymous sessions and restoration
 
@@ -90,7 +90,20 @@ There are no global automatic retries, cookie credentials, or authentication red
 - New Session requires confirmation, deletes `/sessions/current`, clears the old state, and creates a fresh session. A 401 from deletion means the old session is already gone. Other deletion failures preserve the token and require retry before resetting.
 - Failed restoration retains a successfully issued token so retry does not create another session. Unmount cancels pending requests; operation identity checks reject stale results. Strict Mode does not duplicate session creation during its initial setup/cleanup cycle.
 - Browser storage failure displays actionable guidance. Tokens are never placed in URLs or logs.
-- Stage 2 renders the newest history page, including historical recommendation/source metadata and pending/failed message labels. Loading earlier pages, active-request reconciliation, sending, and cart controls are later integration work.
+- The newest history page restores recommendation/source metadata and pending/failed message labels. An in-progress restored request blocks new instructions until an explicit conversation check confirms it has finished. Loading earlier pages is Stage 4 work.
+
+## Chat, recommendations, and cart controls
+
+- Messages are trimmed and limited to 1–2000 characters. Enter sends; Shift+Enter inserts a newline. Suggested questions start an empty conversation. The pending user message appears immediately, with an indeterminate processing state and longer-wait copy after ten seconds.
+- Every new turn gets one UUID. Chat and cart share a single operation lock, including double clicks. Manual cart edits and new sends are disabled while chat is processing; chat also waits for manual cart updates.
+- Each message retains its own recommendations, sources, sections, and action results. Recommendations remain in backend order. Structured sections render instead of the fallback reply, with source IDs matched only to that message's evidence. Text is escaped by React; no backend HTML is injected.
+- Source controls open a keyboard-accessible panel showing title, snippet, and content. Source identifiers are not treated as URLs. Recommendation cards show server prices, dietary tags, spice levels, availability, and the current cart quantity.
+- Add sends current quantity + 1; quantity controls send absolute integers 0–20, and Remove sends zero. Unavailable dishes cannot be added or changed to a positive quantity, but can be removed. Successful chat/PUT responses replace the shared cart using server prices, line totals, and totals.
+- HTTP 200 clarification, missing-evidence, out-of-scope, and rejected cart-action replies remain normal conversation messages. Model/retrieval failures display the documented error message. Oversized context suggests a narrower question or New Session.
+- A failed or uncertain chat retains its original request ID and exact text for explicit Retry message. New instructions stay blocked while the result is uncertain. Check conversation reads history and the current cart, reconciles optimistic turns, and never posts a chat request. Busy responses require a check rather than an immediate retry loop.
+- A successful retry can replay an old cart snapshot, so the frontend fetches the current cart before enabling further changes. If that refresh fails, the UI offers Refresh cart. No automatic mutation retries or normal background polling are added.
+- Failed manual updates refresh the cart once to account for availability/missing-item changes. An uncertain write keeps its original absolute quantity for Retry cart update before allowing other changes. Session expiration during chat/cart clears old state and starts a fresh session without replaying the old instruction.
+- Checkout remains unsupported. The frontend does not call the development retrieval endpoint or invent a public menu/source-detail endpoint.
 
 ## Readiness and routes
 
@@ -110,7 +123,11 @@ Stage 2 adds contract and session tests for envelope validation, scoped headers,
 
 Playwright checks responsive layouts (including 320px), keyboard interaction, reduced motion, and guarded navigation using mocked health responses. It uses the installed Edge browser. Browser screenshots and reports are ignored build artifacts.
 
+The mocked browser suite uses a dedicated Vite server on `localhost:5174` with a fixed test API configuration, so it cannot accidentally reuse a developer's differently configured server on port 5173. Stage 3 coverage exercises full recommendation/source/manual-cart/chat-action/refresh flows at 320, 390, 768, and 1440px, plus retry ID preservation and model-unavailable feedback. Unit/integration tests cover concurrency, authoritative totals, business outcomes, session recovery, stale results, and uncertain-request handling.
+
 Browser checks also restore historical messages, recommendation/source metadata, and current cart totals, verify refresh persistence, and exercise reset confirmation at mobile, tablet, and desktop widths. Real browser startup/refresh was separately verified against the locally configured backend at `http://localhost:8080/api/v1`; the temporary session was deleted afterward. Deployed integration remains a separate verification step.
+
+Stage 3 was also verified in a real browser against that local backend: the recommendation request returned four dishes, source details opened, a recommendation Add succeeded, conversational cart requests returned `CART_UPDATED` and `CART_UNCHANGED` with the correct quantity, and refresh restored the conversation/cart. The temporary test session was deleted with HTTP 204. Automated tests use mocks and do not spend model quota.
 
 A real browser request is necessary to verify CORS; a terminal success alone cannot prove browser access. Network errors do not claim a known cause.
 
@@ -154,4 +171,4 @@ Frontend implementation and local backend connectivity are complete. Before decl
 
 The detailed `AI-Cart-Development-Phases.txt` roadmap is local and ignored by Git at the user’s request. This README preserves the shared frontend decisions. Confirm later API paths with the backend rather than assuming the health endpoint’s version prefix applies everywhere.
 
-Stage 3 adds live sequential chat, recommendation actions, source controls, and manual/conversational cart updates. Stage 4 adds history pagination, uncertain-request recovery/idempotent replay, full reliability checks, and deployed verification. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP. Add live-demo, backend repository, screenshots, and video links when those artifacts exist.
+Stage 3 provides the normal end-to-end UI and foundational explicit recovery controls. Stage 4 adds history pagination, broader interrupted/reloaded-request reconciliation, complete reliability checks, and deployed verification. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP. Add live-demo, backend repository, screenshots, and video links when those artifacts exist.

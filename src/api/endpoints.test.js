@@ -135,7 +135,12 @@ describe('versioned API contracts', () => {
         })
         expect(request.headers.get('X-Session-Id')).toBe(TEST_SESSION)
         return HttpResponse.json(
-          envelope({ requestId, reply: 'Hello', cart: emptyCart }),
+          envelope({
+            requestId,
+            assistantMessageId: 102,
+            reply: 'Hello',
+            cart: emptyCart,
+          }),
         )
       }),
     )

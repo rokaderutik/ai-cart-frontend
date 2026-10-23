@@ -2,9 +2,14 @@ import { ApiError } from '@/api/errors'
 import { createSession, endSession } from './session.api'
 import { getMessages } from '@/features/chat/chat.api'
 import { getCart } from '@/features/cart/cart.api'
+import {
+  createConversationActions,
+  interactionState,
+} from '@/features/chat/conversation-actions'
 
 export const SESSION_STORAGE_KEY = 'ai-cart.session-id'
 const initialState = {
+  ...interactionState,
   status: 'idle',
   messages: [],
   nextBefore: null,
@@ -20,6 +25,8 @@ export function createSessionStore({
   end = endSession,
   history = getMessages,
   cart = getCart,
+  send,
+  updateCart,
 } = {}) {
   let snapshot = { ...initialState }
   let operation = null
@@ -62,6 +69,7 @@ export function createSessionStore({
   }
 
   function cancel() {
+    actions.cancel()
     if (!operation) return
     const previous = operation
     operation = null
@@ -72,6 +80,7 @@ export function createSessionStore({
 
   function start(intent = 'restore') {
     if (operation) return operation.promise
+    actions.cancel()
     retryIntent = intent
     const controller = new AbortController()
     let finish
@@ -181,7 +190,33 @@ export function createSessionStore({
     return promise
   }
 
+  const actions = createConversationActions({
+    getState: () => snapshot,
+    publish,
+    getToken: () => token,
+    history,
+    cart,
+    send,
+    updateCart,
+    onUnauthorized: () => {
+      actions.cancel()
+      try {
+        persist(null)
+      } catch (error) {
+        publish({ ...initialState, status: 'failed', error: error.message })
+        return Promise.resolve(false)
+      }
+      publish({
+        ...initialState,
+        notice:
+          'Your session expired or is no longer available. We started a new conversation. Your previous message was not sent again.',
+      })
+      return start()
+    },
+  })
+
   return {
+    ...actions,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

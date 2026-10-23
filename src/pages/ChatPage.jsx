@@ -1,11 +1,25 @@
-import { LoaderCircle, MessageCircle, Plus, Send, Sparkles } from 'lucide-react'
+import { LoaderCircle, MessageCircle, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { useSession } from '@/features/session/useSession'
 import { ConversationHistory } from '@/features/chat/ConversationHistory'
-import { CartSummary } from '@/features/cart/CartSummary'
+import { ChatComposer } from '@/features/chat/ChatComposer'
+import { ConversationFeedback } from '@/features/chat/ConversationFeedback'
+import {
+  conversationLocked,
+  hasPendingHistory,
+} from '@/features/chat/conversation-actions'
+import { CartWorkspace } from '@/features/cart/CartWorkspace'
+
+const activityCopy = {
+  chat: 'AI Cart is preparing your reply…',
+  cart: 'Updating your cart…',
+  reconcile: 'Checking your conversation and cart…',
+  refresh: 'Refreshing your cart…',
+}
 
 export function ChatPage() {
+  const session = useSession()
   const {
     status,
     messages,
@@ -15,10 +29,10 @@ export function ChatPage() {
     notice,
     retry,
     newSession,
-  } = useSession()
-
+    activity,
+  } = session
   const ready = status === 'ready'
-  
+  const locked = conversationLocked(session)
   return (
     <div className="mx-auto max-w-[1240px] px-5 py-8 sm:px-8 lg:px-12">
       <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
@@ -37,7 +51,7 @@ export function ChatPage() {
           actionLabel="Start new session"
           onConfirm={() => void newSession()}
           trigger={
-            <Button variant="outline" disabled={!ready}>
+            <Button variant="outline" disabled={!ready || Boolean(activity)}>
               <Plus aria-hidden="true" /> New Session
             </Button>
           }
@@ -57,7 +71,9 @@ export function ChatPage() {
         ) : status === 'resetting' ? (
           'Ending your previous session…'
         ) : ready ? (
-          notice || 'Your conversation and cart are ready.'
+          activityCopy[activity] ||
+          notice ||
+          'Your conversation and cart are ready.'
         ) : (
           'Your conversation could not be opened.'
         )}
@@ -72,17 +88,27 @@ export function ChatPage() {
         </div>
       ) : !ready ? (
         <div
-          className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
+          className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]"
           aria-busy="true"
         >
           <div className="h-80 rounded-2xl border bg-white/70" />
           <div className="h-56 rounded-2xl border bg-white/70" />
         </div>
       ) : (
-        <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <CartWorkspace
+          cart={cart}
+          disabled={locked}
+          error={session.cartError}
+          pending={session.pendingCart}
+          needsRefresh={session.cartNeedsRefresh}
+          busy={Boolean(activity)}
+          onUpdate={session.updateQuantity}
+          onRetry={session.retryCart}
+          onRefresh={session.refreshCart}
+        >
           <section
             aria-label="Conversation"
-            className="min-w-0 rounded-2xl border bg-white/40"
+            className="min-w-0 overflow-hidden rounded-2xl border bg-white/40"
           >
             <div className="border-b px-5 py-4">
               <p className="flex items-center gap-2 text-sm font-semibold">
@@ -93,57 +119,64 @@ export function ChatPage() {
                 Anonymous session · saved in this browser tab for up to 24 hours
               </p>
             </div>
-            <div className="min-h-72 p-4 sm:p-6">
-              {messages.length ? (
-                <ConversationHistory
-                  messages={messages}
-                  hasEarlier={nextBefore != null}
-                />
-              ) : (
-                <div className="mx-auto max-w-sm py-12 text-center">
-                  <MessageCircle
-                    className="mx-auto mb-5 size-9 text-primary/60"
-                    aria-hidden="true"
-                  />
-                  <h2 className="display-heading text-2xl">
-                    Good taste starts here.
-                  </h2>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                    Your session is ready. Soon you can ask about dishes,
-                    explore the details, and build your meal.
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="border-t p-4 sm:p-5">
-              <label htmlFor="chat-message" className="sr-only">
-                Message AI Cart
-              </label>
-              <textarea
-                id="chat-message"
-                rows={2}
-                disabled
-                placeholder="What are you in the mood for?"
-                aria-describedby="composer-note"
-                className="block w-full resize-none rounded-xl border bg-white px-4 py-3 text-sm placeholder:text-muted-foreground disabled:opacity-70"
+            {messages.length ? (
+              <ConversationHistory
+                messages={messages}
+                hasEarlier={nextBefore != null}
+                cart={cart}
+                disabled={locked}
+                onAdd={session.updateQuantity}
+                sending={activity === 'chat'}
               />
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p
-                  id="composer-note"
-                  className="text-xs leading-relaxed text-muted-foreground"
-                >
-                  Messaging and cart editing will be available soon.
+            ) : (
+              <div className="mx-auto min-h-72 max-w-sm px-5 py-12 text-center">
+                <MessageCircle
+                  className="mx-auto mb-5 size-9 text-primary/60"
+                  aria-hidden="true"
+                />
+                <h2 className="display-heading text-2xl">
+                  Good taste starts here.
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                  Tell us what sounds good, ask about the restaurant, or start
+                  with a suggestion below.
                 </p>
-                <Button disabled size="icon" aria-label="Send message">
-                  <Send className="size-4" aria-hidden="true" />
+              </div>
+            )}
+            <ConversationFeedback
+              error={session.chatError}
+              pending={session.pendingTurn}
+              historyPending={hasPendingHistory(messages)}
+              busy={Boolean(activity)}
+              onRetry={session.retryMessage}
+              onCheck={session.checkConversation}
+            />
+            {session.cartNeedsRefresh && (
+              <div className="mx-4 mb-4 rounded-xl border bg-white p-4 text-sm sm:mx-6">
+                <p>Confirm your latest cart before sending another message.</p>
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(activity)}
+                  onClick={() => void session.refreshCart()}
+                >
+                  Refresh cart
                 </Button>
               </div>
-            </div>
+            )}
+            {session.pendingCart && (
+              <p className="mx-4 mb-4 text-xs text-muted-foreground sm:mx-6">
+                Confirm the pending update in your cart before continuing.
+              </p>
+            )}
+            <ChatComposer
+              disabled={locked}
+              onSend={session.submitMessage}
+              showSuggestions={messages.length === 0}
+            />
           </section>
-          <aside className="min-w-0 lg:sticky lg:top-6">
-            <CartSummary cart={cart} />
-          </aside>
-        </div>
+        </CartWorkspace>
       )}
     </div>
   )

@@ -8,5 +8,15 @@ export function useSession() {
   useEffect(() => {
     void store.ensureSession()
   }, [store])
-  return { ...snapshot, retry: store.retry, newSession: store.newSession }
+  return {
+    ...snapshot,
+    retry: store.retry,
+    newSession: store.newSession,
+    submitMessage: store.submitMessage,
+    retryMessage: store.retryMessage,
+    updateQuantity: store.updateQuantity,
+    retryCart: store.retryCart,
+    refreshCart: store.refreshCart,
+    checkConversation: store.checkConversation,
+  }
 }

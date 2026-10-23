@@ -104,14 +104,20 @@ for (const width of [320, 768, 1440]) {
       }),
     )
     await page.goto('/chat')
-    await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
+    await expect(
+      page.getByRole('textbox', { name: 'Message AI Cart' }),
+    ).toBeEnabled()
     await expect(
       page.getByText('Something mildly spicy, please.'),
     ).toBeVisible()
     await page.getByText('Supporting sources (1)').click()
+    await page
+      .getByRole('button', { name: 'View source: Menu evidence' })
+      .click()
     await expect(
       page.getByText('Made with paneer, tomatoes, butter and cream.'),
     ).toBeVisible()
+    await page.getByRole('button', { name: 'Close panel' }).click()
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
