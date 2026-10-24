@@ -9,7 +9,7 @@ A restaurant assistant for discovering dishes, inspecting recommendation sources
 
 ## Current phase
 
-Stage 4 adds cursor-based history pagination, reading-position preservation, reload recovery from backend request history, reconciliation before retries, offline feedback, a frontend CI workflow, and a reusable deployment smoke check. These build on sequential chat, source-backed recommendations, manual/conversational cart operations, responsive layouts, and the shared readiness/session lifecycle. Publishing these local changes remains a separate action.
+Stage 4 adds cursor-based history pagination, reading-position preservation, reload recovery from backend request history, reconciliation before retries, offline feedback, a frontend CI workflow, and a reusable deployment smoke check. These build on sequential chat, source-backed recommendations, manual/conversational cart operations, responsive layouts, and the shared readiness/session lifecycle. Stage 4 is deployed on Vercel and its integration with the Render backend was verified on 24 October 2026.
 
 React calls Spring Boot, which owns PostgreSQL/pgvector, retrieval, AI-provider calls, sessions, conversation persistence, and authoritative cart totals. Database and AI-provider credentials do not belong in this frontend.
 
@@ -139,7 +139,7 @@ The mocked browser suite uses a dedicated Vite server on `localhost:5174` with a
 
 Stage 4 tests add overlapping/failed history pages, scroll anchoring, reload recovery, completed-request reconciliation with no second POST, explicit stale-message confirmation, offline drafts, session expiry during pagination, and cancellation of replaced-session responses. The GitHub Actions workflow runs lint, formatting, deterministic unit tests, production build, and browser tests on Chromium. Local tests default to Edge; set `PLAYWRIGHT_BROWSER=chromium` after installing Playwright Chromium to use the CI browser locally. Live model calls are excluded from CI.
 
-Browser checks also restore historical messages, recommendation/source metadata, and current cart totals, verify refresh persistence, and exercise reset confirmation at mobile, tablet, and desktop widths. Real browser startup/refresh was separately verified against the locally configured backend at `http://localhost:8080/api/v1`; the temporary session was deleted afterward. Deployed integration remains a separate verification step.
+Browser checks also restore historical messages, recommendation/source metadata, and current cart totals, verify refresh persistence, and exercise reset confirmation at mobile, tablet, and desktop widths. Real browser startup/refresh was separately verified against the locally configured backend at `http://localhost:8080/api/v1`; the temporary session was deleted afterward. The deployed Vercel/Render integration has also been verified as described below.
 
 Stage 3 was also verified in a real browser against that local backend: the recommendation request returned four dishes, source details opened, a recommendation Add succeeded, conversational cart requests returned `CART_UPDATED` and `CART_UNCHANGED` with the correct quantity, and refresh restored the conversation/cart. The temporary test session was deleted with HTTP 204. Automated tests use mocks and do not spend model quota.
 
@@ -159,11 +159,17 @@ FRONTEND_URL=https://ai-cart-frontend.vercel.app npm run smoke:deployment
 
 In PowerShell, set `$env:FRONTEND_URL = "https://ai-cart-frontend.vercel.app"` and run `npm run smoke:deployment`. The default API target is the Render URL above; override `API_BASE_URL` to check a matching local or alternate deployment. The frontend must already be configured to call that API. The script verifies a direct `/chat` visit, browser health/CORS, temporary session/history/cart startup, refresh persistence, and not-found routing, then deletes only sessions it created. It writes a token-free report to `test-results/deployment-smoke.json`. It does not publish anything.
 
-Add `SMOKE_CHAT=true` to explicitly include three live model requests, recommendation Add, and conversational cart updates. This uses provider quota and stays outside normal CI. A smoke check of the currently published version cannot verify uncommitted Stage 4 changes; rerun it after those changes deploy. Docker build/run verification still requires Docker on the host.
+Add `SMOKE_CHAT=true` to explicitly include three live model requests, recommendation Add, and conversational cart updates. This uses provider quota and stays outside normal CI. Rerun against the intended revision after future deployments. Docker build/run verification still requires Docker on the host.
 
 Stage 4 verification on 24 October 2026: 117 unit/integration tests and 22 browser tests passed, along with lint, formatting, and the production build. The live local smoke check passed against `http://localhost:5173` and `http://localhost:8080/api/v1`, including HTTP 204 cleanup of its temporary session.
 
-The published Vercel frontend currently displays **Connection setup needed** and makes no application API requests. A separate browser health request from that published origin successfully returned HTTP 200 with `data.status: "UP"` from Render. Check the frontend project's Vercel environment settings: set `VITE_API_BASE_URL=https://ai-cart-backend.onrender.com/api/v1` for the required Production/Preview targets and rebuild/redeploy. Protected session/cart/history startup on that deployment remains unverified until this configuration is fixed. The diagnostic is saved locally at `test-results/published-deployment-smoke.json`; no Vercel settings or deployments were changed by this work.
+Production verification on 24 October 2026 passed against `https://ai-cart-frontend.vercel.app` and `https://ai-cart-backend.onrender.com/api/v1`. The earlier frontend configuration blocker is resolved. The deployed smoke check verified direct `/chat` routing, browser health/CORS, session/history/cart startup, live recommendations, manual Add, conversational cart updates, refresh restoration, and the unknown-route fallback.
+
+Additional isolated-browser checks verified real source titles/content, Add/increase/decrease/remove controls, reset confirmation/cancellation, old-token revocation, and layouts/cart drawers at 320, 390, 768, and 1440px with no horizontal page overflow or uncaught browser errors. Live history requests used a smaller supported `limit=3` to exercise real backend cursors and reading-position preservation without generating 50 messages; response bodies were not mocked.
+
+Recovery was checked by deliberately dropping a successful real chat response after the backend applied `CART_UPDATED`. Retry restored persisted history and the current cart without a second chat POST or duplicate cart mutation. A browser offline toggle preserved the draft and did not resend on reconnect. These were induced client-side failures, not observed backend outages. An ordinal cart instruction returned normal `CLARIFICATION` on one run; an explicit dish-name instruction completed the mutation/recovery check.
+
+Reports are saved locally at `test-results/deployment-smoke.json` and `test-results/live-stage4-verification.json`, with responsive screenshots alongside them. They contain no session tokens. Every temporary session was deleted with HTTP 204 or confirmed already revoked with HTTP 401 after reset. Only the token was persisted in browser session storage. Render was already awake, so a new real cold start and live model-provider outages were not forced; those failure paths remain covered by deterministic tests. No application code, deployment settings, or deployments were changed during this verification.
 
 ## Docker deployment
 
@@ -188,10 +194,9 @@ Docker build/run validation must be performed on a machine with Docker installed
 
 ## Phase 1 completion status
 
-Frontend implementation and local backend connectivity are complete. Before declaring the roadmap's **deployed skeleton** complete:
+Frontend implementation, local connectivity, and the deployed skeleton's frontend integration are complete. The deployed welcome-to-chat flow, direct `/chat` entry, and browser CORS have been verified. Separate checks remain where applicable:
 
-- Deploy the frontend from the intended main branch and configure `VITE_API_BASE_URL` in that deployment.
-- Allow the deployed frontend origin in backend CORS; verify deployed welcome-to-chat entry after a cold start and a direct `/chat` visit.
+- Observe a new Render cold start if an actual cold-start timing check is required; the backend was already awake during production verification.
 - Verify the Docker image builds and runs if using container deployment.
 - Confirm the backend-owned checklist separately: Neon connectivity, pgvector enabled, successful chat-model and embedding-model calls, and backend main-branch deployment. These are not established by a frontend health response.
 
@@ -199,4 +204,4 @@ Frontend implementation and local backend connectivity are complete. Before decl
 
 The detailed `AI-Cart-Development-Phases.txt` roadmap is local and ignored by Git at the user’s request. This README preserves the shared frontend decisions. Confirm later API paths with the backend rather than assuming the health endpoint’s version prefix applies everywhere.
 
-The frontend integration stages are implemented locally. Remaining release work is to commit/push/deploy this revision, rerun the deployment smoke check on that revision, and validate the Docker image if container hosting is used. Backend RAG evaluation/results and portfolio materials remain separate roadmap work. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP.
+The frontend integration stages are implemented and deployed, and the live Stage 4 integration checks passed. Continue running CI and the deployment smoke check for future revisions. Docker image validation remains necessary if container hosting is used. Backend RAG evaluation/results and portfolio materials remain separate roadmap work. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP.
