@@ -3,6 +3,8 @@ import { setCartItemQuantity } from '@/features/cart/cart.api'
 import { ApiError } from '@/api/errors'
 import {
   hasPendingHistory,
+  chatAttempts,
+  MAX_CHAT_ATTEMPTS,
   mergeMessages,
   resolveTurn,
   restoreRecovery,
@@ -27,7 +29,7 @@ export function conversationLocked(state) {
     state.status !== 'ready' ||
     Boolean(
       state.activity ||
-      state.pendingTurn ||
+      (state.pendingTurn && state.chatError?.blocked !== false) ||
       state.pendingCart ||
       state.cartNeedsRefresh ||
       hasPendingHistory(state.messages),
@@ -58,6 +60,32 @@ function describeChatError(error) {
       error?.message || 'We could not complete your message. Please try again.',
     retryable,
     blocked: retryable,
+  }
+}
+
+function describeRecovery(turn, resolution) {
+  const exhausted = chatAttempts(turn) >= MAX_CHAT_ATTEMPTS
+  const failed = resolution === 'failed'
+  let message =
+    'No completed reply was found. You can retry the original request once.'
+  if (exhausted && failed)
+    message =
+      'We couldn’t complete this message after two attempts. Try rephrasing it or ask a different question. Your conversation and cart have been preserved.'
+  else if (exhausted)
+    message =
+      'No retries remain, and this request’s final result is not confirmed. Check the conversation again before continuing, or start a new session.'
+  else if (resolution === 'busy')
+    message =
+      'The service is still processing this request. Check again later, or recover the original request if the earlier attempt was interrupted.'
+  else if (failed && turn.recovered)
+    message =
+      'Your last message did not complete. You can ask a different question or retry the original request once.'
+  return {
+    message,
+    retryable: resolution !== 'busy' && !exhausted,
+    resumeAllowed: resolution === 'busy' && !exhausted,
+    blocked: !(failed && (exhausted || turn.recovered)),
+    exhausted,
   }
 }
 
@@ -115,6 +143,8 @@ export function createConversationActions({
 
   function dispatchTurn(turn, retrying = false) {
     const resumeAllowed = getState().chatError?.resumeAllowed === true
+    let currentTurn = turn
+    let sent = false
     return perform(
       'chat',
       async (context) => {
@@ -124,10 +154,14 @@ export function createConversationActions({
             return
           if (resolution === 'busy' && !resumeAllowed) return
         }
+        if (chatAttempts(turn) >= MAX_CHAT_ATTEMPTS) return
+        currentTurn = { ...turn, attempts: chatAttempts(turn) + 1 }
         publish({
+          pendingTurn: currentTurn,
           chatError: null,
           messages: markTurn(turn.requestId, 'IN_PROGRESS'),
         })
+        sent = true
         const response = await send({
           sessionId: context.sessionId,
           signal: context.signal,
@@ -180,8 +214,15 @@ export function createConversationActions({
           }
         }
       },
-      (error) => {
+      async (error, context) => {
         const detail = describeChatError(error)
+        const exhausted = chatAttempts(currentTurn) >= MAX_CHAT_ATTEMPTS
+        if (detail.blocked && exhausted) {
+          detail.retryable = false
+          detail.resumeAllowed = false
+          detail.exhausted = true
+          detail.message = `${detail.message} No retries remain. Check the conversation to confirm the result before continuing.`
+        }
         if (error?.code === 'CHAT_RETRY_STALE') {
           detail.resubmitText = turn.message
           detail.message =
@@ -189,9 +230,26 @@ export function createConversationActions({
         }
         publish({
           messages: markTurn(turn.requestId, 'FAILED'),
-          pendingTurn: detail.blocked ? turn : null,
+          pendingTurn: detail.blocked ? currentTurn : null,
           chatError: detail,
         })
+        if (sent && exhausted && detail.blocked) {
+          // A failed HTTP response alone cannot establish the final cart/request state.
+          try {
+            await readConversation(context, currentTurn)
+          } catch (refreshError) {
+            if (!context.active()) return
+            if (refreshError?.status === 401) await onUnauthorized()
+            else
+              publish({
+                chatError: {
+                  ...detail,
+                  message:
+                    'Both attempts ended without a confirmed reply, and we couldn’t check the latest conversation and cart. Check the conversation before continuing, or start a new session.',
+                },
+              })
+          }
+        }
       },
     )
   }
@@ -200,7 +258,7 @@ export function createConversationActions({
     if (conversationLocked(getState())) return Promise.resolve(false)
     const message = typeof text === 'string' ? text.trim() : ''
     if (!message || message.length > 2000) return Promise.resolve(false)
-    const turn = { requestId: crypto.randomUUID(), message }
+    const turn = { requestId: crypto.randomUUID(), message, attempts: 0 }
     const optimistic = {
       id: `local-${turn.requestId}`,
       requestId: turn.requestId,
@@ -222,6 +280,7 @@ export function createConversationActions({
     const state = getState()
     if (
       !state.pendingTurn ||
+      chatAttempts(state.pendingTurn) >= MAX_CHAT_ATTEMPTS ||
       !(state.chatError?.retryable || state.chatError?.resumeAllowed)
     )
       return Promise.resolve(false)
@@ -334,15 +393,7 @@ export function createConversationActions({
         resubmitText: turn.message,
       }
     } else if (turn) {
-      chatError = {
-        message:
-          resolution === 'busy'
-            ? 'The service is still processing this request. Check again later, or recover the original request if the earlier attempt was interrupted.'
-            : 'No completed reply was found. You can retry the original request.',
-        retryable: resolution !== 'busy',
-        resumeAllowed: resolution === 'busy',
-        blocked: true,
-      }
+      chatError = describeRecovery(turn, resolution)
     } else {
       pendingTurn = recovered.pendingTurn
       chatError = recovered.chatError
@@ -361,9 +412,10 @@ export function createConversationActions({
       cartNeedsRefresh: false,
       pendingTurn,
       chatError,
-      notice: pendingTurn
-        ? 'Your latest request needs attention before continuing.'
-        : 'Your conversation and cart are up to date.',
+      notice:
+        pendingTurn && chatError?.blocked !== false
+          ? 'Your latest request needs attention before continuing.'
+          : 'Your conversation and cart are up to date.',
     })
     return resolution
   }
@@ -419,11 +471,13 @@ export function createConversationActions({
       (error) =>
         publish({
           chatError: {
+            ...getState().chatError,
             message: error?.message || 'We could not check the conversation.',
             retryable: Boolean(
-              getState().pendingTurn && getState().chatError?.retryable,
+              getState().pendingTurn &&
+              chatAttempts(getState().pendingTurn) < MAX_CHAT_ATTEMPTS &&
+              getState().chatError?.retryable,
             ),
-            blocked: Boolean(getState().pendingTurn),
           },
         }),
     )
@@ -451,7 +505,8 @@ export function createConversationActions({
               chatError: {
                 message:
                   'The request was interrupted. Check the conversation or retry the same message.',
-                retryable: true,
+                retryable: chatAttempts(state.pendingTurn) < MAX_CHAT_ATTEMPTS,
+                exhausted: chatAttempts(state.pendingTurn) >= MAX_CHAT_ATTEMPTS,
                 blocked: true,
               },
             }

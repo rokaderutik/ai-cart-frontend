@@ -1,3 +1,8 @@
+export const MAX_CHAT_ATTEMPTS = 2
+
+/** Backend history records the original attempt, but does not expose retry counts. */
+export const chatAttempts = (turn) => turn?.attempts ?? 1
+
 /** Match persisted records to optimistic turns without merging USER and ASSISTANT. */
 function sameMessage(left, right) {
   return (
@@ -73,13 +78,14 @@ export function restoreRecovery(messages) {
       requestId: latest.requestId,
       message: latest.content,
       recovered: true,
+      attempts: 1,
     },
     chatError: {
       message: busy
         ? 'Your last request was still processing when this conversation was restored. Check its status before continuing.'
-        : 'Your last message did not complete. You can check its status or retry the original request.',
+        : 'Your last message did not complete. You can ask a different question or retry the original request once.',
       retryable: !busy,
-      blocked: true,
+      blocked: busy,
       resumeAllowed: false,
     },
   }
@@ -111,7 +117,8 @@ export function resolveTurn(page, turn) {
       )
   )
     return 'stale'
-  return index >= 0 && page[index]?.requestStatus === 'IN_PROGRESS'
-    ? 'busy'
+  if (index >= 0 && page[index]?.requestStatus === 'IN_PROGRESS') return 'busy'
+  return index >= 0 && page[index]?.requestStatus === 'FAILED'
+    ? 'failed'
     : 'retry'
 }

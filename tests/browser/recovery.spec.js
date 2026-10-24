@@ -162,7 +162,7 @@ test('a refreshed failed request retries the stored backend ID and text, and ref
     }
   })
   await page.goto('/chat')
-  await expect(page.getByRole('textbox')).toBeDisabled()
+  await expect(page.getByRole('textbox')).toBeEnabled()
   await page.getByRole('button', { name: 'Retry message' }).click()
   await expect(page.getByRole('textbox')).toBeEnabled()
   await expect(
@@ -338,3 +338,115 @@ test('offline state preserves a draft and never automatically sends it on reconn
   await expect(input).toHaveValue('Keep this draft')
   expect(posts).toBe(0)
 })
+
+for (const width of [320, 1440]) {
+  test(`two invalid-model responses unlock a new question without a third retry at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const posts = []
+    let messages = []
+    await setup(page, ({ path, request, route, respond }) => {
+      if (path === '/cart') return respond(makeCart(2))
+      if (path === '/chat/messages')
+        return respond({ messages, nextBefore: null })
+      if (path === '/chat') {
+        const body = request.postDataJSON()
+        posts.push(body)
+        if (posts.length <= 2) {
+          messages = [
+            { ...user(1, 'FAILED', body.requestId), content: body.message },
+          ]
+          return route.fulfill({
+            status: 503,
+            json: {
+              data: null,
+              error: {
+                status: 503,
+                code: 'CHAT_INVALID_MODEL_OUTPUT',
+                message:
+                  'The model could not produce a verified response; retry this request',
+                errors: [],
+              },
+            },
+          })
+        }
+        messages.push(
+          { ...user(3, 'COMPLETED', body.requestId), content: body.message },
+          answer(4, body.requestId, 'Try another mild dish.'),
+        )
+        return respond({
+          requestId: body.requestId,
+          assistantMessageId: 4,
+          reply: 'Try another mild dish.',
+          cart: makeCart(2),
+        })
+      }
+      throw new Error(`Unexpected endpoint: ${path}`)
+    })
+    await page.goto('/chat')
+    const input = page.getByRole('textbox', { name: 'Message AI Cart' })
+    await expect(input).toBeEnabled()
+    await input.fill('Is pulao available?')
+    await input.press('Enter')
+    await expect(page.getByRole('alert')).toContainText(
+      'The model could not produce a verified response',
+    )
+    await expect(input).toBeDisabled()
+    await expect(
+      page.getByText('One retry is available for this message.'),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Check conversation' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Retry message' }),
+    ).toBeEnabled()
+    expect(posts).toHaveLength(1)
+    await page.getByRole('button', { name: 'Retry message' }).click()
+    await expect(input).toBeEnabled()
+    await expect(page.getByRole('alert')).toContainText('after two attempts')
+    await expect(
+      page.getByRole('button', { name: 'Retry message' }),
+    ).toHaveCount(0)
+    expect(posts).toHaveLength(2)
+    expect(posts[0]).toEqual(posts[1])
+    await page.getByRole('button', { name: 'Check conversation' }).click()
+    await expect(input).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: 'Retry message' }),
+    ).toHaveCount(0)
+    expect(posts).toHaveLength(2)
+    if (width < 1024)
+      await page.getByRole('button', { name: 'View cart' }).click()
+    await expect(
+      page
+        .getByRole('region', { name: 'Your cart' })
+        .getByLabel('Quantity: 2', { exact: true }),
+    ).toBeVisible()
+    if (width < 1024)
+      await page.getByRole('button', { name: 'Close panel' }).click()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: `test-results/bounded-chat-retry-${width}.png`,
+      fullPage: true,
+    })
+    await input.fill('Which rice dishes do you have?')
+    await input.press('Enter')
+    await expect(page.getByText('Try another mild dish.')).toBeVisible()
+    expect(posts).toHaveLength(3)
+    expect(posts[2].requestId).not.toBe(posts[0].requestId)
+    await expect(
+      page.getByText('Is pulao available?', { exact: true }),
+    ).toHaveCount(1)
+    await page.reload()
+    await expect(input).toBeEnabled()
+    await expect(page.getByText('Try another mild dish.')).toBeVisible()
+    expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual([
+      'ai-cart.session-id',
+    ])
+    expect(posts).toHaveLength(3)
+  })
+}

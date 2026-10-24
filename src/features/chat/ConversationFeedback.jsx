@@ -21,6 +21,11 @@ export function ConversationFeedback({
         {error?.message ||
           'A previous message is still processing. Check the conversation before continuing.'}
       </p>
+      {pending && error?.retryable && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          One retry is available for this message.
+        </p>
+      )}
       {(pending || historyPending || error?.resubmitText) && (
         <div className="mt-3 flex flex-wrap gap-2">
           {pending && (error?.retryable || error?.resumeAllowed) && (
