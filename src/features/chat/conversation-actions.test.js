@@ -165,7 +165,7 @@ describe('sequential conversation and cart actions', () => {
       )
       expect(send.mock.calls[0][0].message).toBe(send.mock.calls[1][0].message)
       expect(store.getSnapshot().messages).toHaveLength(2)
-      expect(cart).toHaveBeenCalledTimes(2)
+      expect(cart).toHaveBeenCalledTimes(3)
       expect(store.getSnapshot().cart).toEqual(emptyCart)
     },
   )
@@ -178,7 +178,9 @@ describe('sequential conversation and cart actions', () => {
         .mockImplementation(async ({ requestId }) => response(requestId)),
     })
     await store.submitMessage('Add the first dish.')
-    cart.mockRejectedValueOnce({ kind: 'network' })
+    cart
+      .mockResolvedValueOnce(emptyCart)
+      .mockRejectedValueOnce({ kind: 'network' })
     await store.retryMessage()
     expect(store.getSnapshot().cartNeedsRefresh).toBe(true)
     await expect(store.submitMessage('Another instruction')).resolves.toBe(
@@ -243,7 +245,7 @@ describe('sequential conversation and cart actions', () => {
     expect(store.getSnapshot().chatError).toBeNull()
   })
 
-  it('waits when history still contains an in-progress request', async () => {
+  it('requires a check before explicitly recovering an in-progress request', async () => {
     const { store, send, history } = await setup({
       send: vi.fn().mockRejectedValue({ kind: 'timeout' }),
     })
@@ -264,7 +266,10 @@ describe('sequential conversation and cart actions', () => {
     await store.checkConversation()
     expect(store.getSnapshot().chatError.retryable).toBe(false)
     await store.retryMessage()
-    expect(send).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[0][0].requestId).toBe(
+      send.mock.calls[1][0].requestId,
+    )
   })
 
   it('refreshes cart after unavailable-item errors without changing it optimistically', async () => {

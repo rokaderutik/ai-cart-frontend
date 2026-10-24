@@ -10,16 +10,19 @@ import {
   hasPendingHistory,
 } from '@/features/chat/conversation-actions'
 import { CartWorkspace } from '@/features/cart/CartWorkspace'
+import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 const activityCopy = {
   chat: 'AI Cart is preparing your reply…',
   cart: 'Updating your cart…',
   reconcile: 'Checking your conversation and cart…',
   refresh: 'Refreshing your cart…',
+  history: 'Loading earlier messages…',
 }
 
 export function ChatPage() {
   const session = useSession()
+  const online = useOnlineStatus()
   const {
     status,
     messages,
@@ -32,7 +35,7 @@ export function ChatPage() {
     activity,
   } = session
   const ready = status === 'ready'
-  const locked = conversationLocked(session)
+  const locked = conversationLocked(session) || !online
   return (
     <div className="mx-auto max-w-[1240px] px-5 py-8 sm:px-8 lg:px-12">
       <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
@@ -51,12 +54,21 @@ export function ChatPage() {
           actionLabel="Start new session"
           onConfirm={() => void newSession()}
           trigger={
-            <Button variant="outline" disabled={!ready || Boolean(activity)}>
+            <Button
+              variant="outline"
+              disabled={!ready || Boolean(activity) || !online}
+            >
               <Plus aria-hidden="true" /> New Session
             </Button>
           }
         />
       </div>
+      {!online && (
+        <p role="alert" className="mb-5 rounded-xl border bg-white p-4 text-sm">
+          You’re offline. Reconnect before sending messages or changing your
+          cart. Requests will not be resent automatically.
+        </p>
+      )}
       <div
         role="status"
         aria-live="polite"
@@ -101,7 +113,7 @@ export function ChatPage() {
           error={session.cartError}
           pending={session.pendingCart}
           needsRefresh={session.cartNeedsRefresh}
-          busy={Boolean(activity)}
+          busy={Boolean(activity) || !online}
           onUpdate={session.updateQuantity}
           onRetry={session.retryCart}
           onRefresh={session.refreshCart}
@@ -127,6 +139,12 @@ export function ChatPage() {
                 disabled={locked}
                 onAdd={session.updateQuantity}
                 sending={activity === 'chat'}
+                onLoadEarlier={session.loadEarlier}
+                historyLoading={activity === 'history'}
+                historyError={session.historyError}
+                historyNotice={session.historyNotice}
+                historyRevision={session.historyRevision}
+                busy={Boolean(activity) || !online}
               />
             ) : (
               <div className="mx-auto min-h-72 max-w-sm px-5 py-12 text-center">
@@ -147,9 +165,11 @@ export function ChatPage() {
               error={session.chatError}
               pending={session.pendingTurn}
               historyPending={hasPendingHistory(messages)}
-              busy={Boolean(activity)}
+              busy={Boolean(activity) || !online}
               onRetry={session.retryMessage}
               onCheck={session.checkConversation}
+              onResubmit={session.submitMessage}
+              canResubmit={!locked}
             />
             {session.cartNeedsRefresh && (
               <div className="mx-4 mb-4 rounded-xl border bg-white p-4 text-sm sm:mx-6">
@@ -158,7 +178,7 @@ export function ChatPage() {
                   className="mt-3"
                   variant="outline"
                   size="sm"
-                  disabled={Boolean(activity)}
+                  disabled={Boolean(activity) || !online}
                   onClick={() => void session.refreshCart()}
                 >
                   Refresh cart

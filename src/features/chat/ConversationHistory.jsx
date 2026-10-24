@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { Bot, BookOpen, UserRound } from 'lucide-react'
 import { SourceDetails } from './SourceDetails'
 import { RecommendationCard } from './RecommendationCard'
 import { ChatProgress } from './ChatProgress'
+import { Button } from '@/components/ui/button'
 
 function MessageContent({ message, cart, disabled, onAdd }) {
   const metadata = message?.metadata
@@ -79,7 +80,10 @@ function MessageContent({ message, cart, disabled, onAdd }) {
       )}
       {assistant && metadata?.actionResult?.outcome === 'CART_UPDATED' && (
         <p className="mt-3 rounded-lg bg-[#edf3e9] px-3 py-2 text-xs font-medium text-[#496a36]">
-          Cart updated · quantity {metadata.actionResult.quantity ?? 0}
+          Cart updated
+          {Number.isInteger(metadata?.actionResult?.quantity)
+            ? ` · quantity ${metadata.actionResult.quantity}`
+            : ''}
         </p>
       )}
       {message?.requestStatus === 'IN_PROGRESS' && (
@@ -101,14 +105,42 @@ export function ConversationHistory({
   disabled,
   onAdd,
   sending,
+  onLoadEarlier,
+  historyLoading,
+  historyError,
+  historyNotice,
+  historyRevision,
+  busy,
 }) {
   const scrollRef = useRef(null)
   const followLatest = useRef(true)
-  useEffect(() => {
+  const prependAnchor = useRef(null)
+  useLayoutEffect(() => {
     const element = scrollRef.current
-    if (element && followLatest.current)
+    if (
+      element &&
+      prependAnchor.current &&
+      prependAnchor.current.revision !== historyRevision
+    ) {
+      element.scrollTop =
+        prependAnchor.current.top +
+        element.scrollHeight -
+        prependAnchor.current.height
+      prependAnchor.current = null
+    } else if (element && followLatest.current)
       element.scrollTop = element.scrollHeight
-  }, [messages, sending])
+  }, [messages, sending, historyRevision])
+
+  async function loadEarlier() {
+    const element = scrollRef.current
+    prependAnchor.current = {
+      top: element.scrollTop,
+      height: element.scrollHeight,
+      revision: historyRevision,
+    }
+    followLatest.current = false
+    if (!(await onLoadEarlier())) prependAnchor.current = null
+  }
   return (
     <div
       ref={scrollRef}
@@ -123,8 +155,33 @@ export function ConversationHistory({
       className="max-h-[65svh] min-h-72 space-y-6 overflow-y-auto p-4 focus-visible:outline-primary sm:p-6"
     >
       {hasEarlier && (
-        <p className="text-center text-xs text-muted-foreground">
-          Showing your most recent messages.
+        <div className="text-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void loadEarlier()}
+          >
+            {historyLoading
+              ? 'Loading earlier messages…'
+              : 'Load earlier messages'}
+          </Button>
+        </div>
+      )}
+      {historyError && (
+        <p
+          role="alert"
+          className="rounded-xl border bg-white p-3 text-sm text-destructive"
+        >
+          {historyError}
+        </p>
+      )}
+      {historyNotice && (
+        <p
+          aria-live="polite"
+          className="text-center text-xs text-muted-foreground"
+        >
+          {historyNotice}
         </p>
       )}
       {messages.map((message) => {
@@ -133,6 +190,7 @@ export function ConversationHistory({
         return (
           <article
             key={message.id}
+            data-message-id={message.id}
             aria-label={assistant ? 'Assistant message' : 'Your message'}
             className="flex min-w-0 gap-3"
           >

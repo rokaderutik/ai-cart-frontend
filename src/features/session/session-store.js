@@ -2,6 +2,7 @@ import { ApiError } from '@/api/errors'
 import { createSession, endSession } from './session.api'
 import { getMessages } from '@/features/chat/chat.api'
 import { getCart } from '@/features/cart/cart.api'
+import { mergeMessages, restoreRecovery } from '@/features/chat/message-history'
 import {
   createConversationActions,
   interactionState,
@@ -115,7 +116,7 @@ export function createSessionStore({
       const failed = results.find((result) => result.status === 'rejected')
       if (failed) throw failed.reason
       return {
-        messages: results[0].value.messages,
+        messages: mergeMessages([], results[0].value.messages),
         nextBefore: results[0].value.nextBefore,
         cart: results[1].value,
       }
@@ -171,7 +172,13 @@ export function createSessionStore({
             throw nextError
           }
         }
-        if (active()) publish({ ...restored, status: 'ready', error: null })
+        if (active())
+          publish({
+            ...restored,
+            ...restoreRecovery(restored.messages),
+            status: 'ready',
+            error: null,
+          })
       } catch (error) {
         if (active())
           publish({

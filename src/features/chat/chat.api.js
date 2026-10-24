@@ -5,6 +5,14 @@ import { validateCart } from '@/features/cart/cart.api'
 /** Each page is chronological. The cursor is opaque and is forwarded unchanged.
  * @param {{sessionId: string, limit?: number, before?: string | number, signal?: AbortSignal}} options */
 export async function getMessages({ sessionId, limit = 50, before, signal }) {
+  requireContract(
+    Number.isInteger(limit) &&
+      limit >= 1 &&
+      limit <= 100 &&
+      (before == null ||
+        (typeof before === 'string' && before.length > 0) ||
+        (typeof before === 'number' && Number.isFinite(before))),
+  )
   const data = await apiClient.get('/chat/messages', {
     ...sessionOptions(sessionId, signal),
     params: { limit, before },
@@ -12,11 +20,19 @@ export async function getMessages({ sessionId, limit = 50, before, signal }) {
   requireContract(
     Array.isArray(data?.messages) &&
       Object.hasOwn(data, 'nextBefore') &&
+      (data.nextBefore === null ||
+        (typeof data.nextBefore === 'string' && data.nextBefore.length > 0) ||
+        (typeof data.nextBefore === 'number' &&
+          Number.isFinite(data.nextBefore))) &&
       data.messages.every(
         (message) =>
           message?.id != null &&
           ['USER', 'ASSISTANT'].includes(message?.role) &&
-          typeof message?.content === 'string',
+          typeof message?.content === 'string' &&
+          (message?.requestStatus == null ||
+            ['IN_PROGRESS', 'COMPLETED', 'FAILED'].includes(
+              message.requestStatus,
+            )),
       ),
   )
   return data

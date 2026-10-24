@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test'
+import { env } from 'node:process'
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -7,7 +8,7 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5174',
-    channel: 'msedge',
+    channel: env.PLAYWRIGHT_BROWSER === 'chromium' ? undefined : 'msedge',
     headless: true,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',

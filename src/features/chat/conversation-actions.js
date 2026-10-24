@@ -1,5 +1,14 @@
 import { sendMessage } from './chat.api'
 import { setCartItemQuantity } from '@/features/cart/cart.api'
+import { ApiError } from '@/api/errors'
+import {
+  hasPendingHistory,
+  mergeMessages,
+  resolveTurn,
+  restoreRecovery,
+} from './message-history'
+
+export { hasPendingHistory, mergeMessages } from './message-history'
 
 export const interactionState = {
   activity: null,
@@ -8,13 +17,9 @@ export const interactionState = {
   chatError: null,
   cartError: null,
   cartNeedsRefresh: false,
-}
-
-export function hasPendingHistory(messages) {
-  return messages.some(
-    (message) =>
-      message?.role === 'USER' && message?.requestStatus === 'IN_PROGRESS',
-  )
+  historyError: null,
+  historyNotice: null,
+  historyRevision: 0,
 }
 
 export function conversationLocked(state) {
@@ -28,23 +33,6 @@ export function conversationLocked(state) {
       hasPendingHistory(state.messages),
     )
   )
-}
-
-/** Reconcile optimistic turns by role + request ID, retaining older loaded messages. */
-export function mergeMessages(existing, incoming) {
-  const matches = (message) =>
-    incoming.some(
-      (next) =>
-        next.id === message.id ||
-        (message?.requestId &&
-          next?.requestId === message.requestId &&
-          next.role === message.role),
-    )
-  return [
-    ...existing.filter((message) => !message?.optimistic && !matches(message)),
-    ...incoming,
-    ...existing.filter((message) => message?.optimistic && !matches(message)),
-  ]
 }
 
 function describeChatError(error) {
@@ -109,6 +97,7 @@ export function createConversationActions({
         else await onError(error, context)
         return false
       } finally {
+        controller.abort()
         if (operation === current) {
           operation = null
           publish({ activity: null })
@@ -125,9 +114,16 @@ export function createConversationActions({
     )
 
   function dispatchTurn(turn, retrying = false) {
+    const resumeAllowed = getState().chatError?.resumeAllowed === true
     return perform(
       'chat',
       async (context) => {
+        if (retrying) {
+          const resolution = await readConversation(context, turn)
+          if (!context.active() || ['completed', 'stale'].includes(resolution))
+            return
+          if (resolution === 'busy' && !resumeAllowed) return
+        }
         publish({
           chatError: null,
           messages: markTurn(turn.requestId, 'IN_PROGRESS'),
@@ -186,6 +182,11 @@ export function createConversationActions({
       },
       (error) => {
         const detail = describeChatError(error)
+        if (error?.code === 'CHAT_RETRY_STALE') {
+          detail.resubmitText = turn.message
+          detail.message =
+            'A newer conversation turn exists. Check your conversation, then choose whether to send this as a new message.'
+        }
         publish({
           messages: markTurn(turn.requestId, 'FAILED'),
           pendingTurn: detail.blocked ? turn : null,
@@ -219,7 +220,10 @@ export function createConversationActions({
 
   function retryMessage() {
     const state = getState()
-    if (!state.pendingTurn || !state.chatError?.retryable)
+    if (
+      !state.pendingTurn ||
+      !(state.chatError?.retryable || state.chatError?.resumeAllowed)
+    )
       return Promise.resolve(false)
     return dispatchTurn(state.pendingTurn, true)
   }
@@ -305,48 +309,113 @@ export function createConversationActions({
     )
   }
 
+  async function readConversation(context, turn) {
+    const [page, latest] = await Promise.all([
+      history({ sessionId: context.sessionId, signal: context.signal }),
+      cart({ sessionId: context.sessionId, signal: context.signal }),
+    ])
+    if (!context.active()) return 'canceled'
+    const state = getState()
+    const messages = mergeMessages(state.messages, page.messages)
+    const resolution = resolveTurn(page.messages, turn)
+    const recovered = restoreRecovery(page.messages)
+    let pendingTurn = turn
+    let chatError
+    if (resolution === 'completed') {
+      pendingTurn = recovered.pendingTurn
+      chatError = recovered.chatError
+    } else if (resolution === 'stale') {
+      pendingTurn = null
+      chatError = {
+        message:
+          'A newer conversation turn exists. This earlier message will not be retried automatically.',
+        retryable: false,
+        blocked: false,
+        resubmitText: turn.message,
+      }
+    } else if (turn) {
+      chatError = {
+        message:
+          resolution === 'busy'
+            ? 'The service is still processing this request. Check again later, or recover the original request if the earlier attempt was interrupted.'
+            : 'No completed reply was found. You can retry the original request.',
+        retryable: resolution !== 'busy',
+        resumeAllowed: resolution === 'busy',
+        blocked: true,
+      }
+    } else {
+      pendingTurn = recovered.pendingTurn
+      chatError = recovered.chatError
+      if (chatError && hasPendingHistory(page.messages))
+        chatError = { ...chatError, resumeAllowed: true }
+      if (!chatError && state.chatError?.resubmitText)
+        chatError = {
+          ...state.chatError,
+          message:
+            'Your conversation is up to date. Choose whether you want to send the earlier message as a new request.',
+        }
+    }
+    publish({
+      messages,
+      cart: latest,
+      cartNeedsRefresh: false,
+      pendingTurn,
+      chatError,
+      notice: pendingTurn
+        ? 'Your latest request needs attention before continuing.'
+        : 'Your conversation and cart are up to date.',
+    })
+    return resolution
+  }
+
+  function loadEarlier() {
+    const cursor = getState().nextBefore
+    if (cursor == null) return Promise.resolve(false)
+    return perform(
+      'history',
+      async (context) => {
+        publish({ historyError: null, historyNotice: null })
+        const page = await history({
+          sessionId: context.sessionId,
+          signal: context.signal,
+          before: cursor,
+          limit: 50,
+        })
+        if (!context.active()) return
+        if (
+          page.nextBefore != null &&
+          String(page.nextBefore) === String(cursor)
+        )
+          throw new ApiError(
+            'protocol',
+            'The service did not advance the history page. Please try again.',
+          )
+        const state = getState()
+        const messages = mergeMessages(state.messages, page.messages, 'older')
+        const added = messages.length - state.messages.length
+        publish({
+          messages,
+          nextBefore: page.nextBefore,
+          historyRevision: state.historyRevision + 1,
+          historyNotice: added
+            ? `${added} earlier messages loaded.`
+            : 'No additional messages on this page.',
+          historyError: null,
+        })
+      },
+      (error) =>
+        publish({
+          historyError:
+            error?.message ||
+            'We could not load earlier messages. Please try again.',
+        }),
+    )
+  }
+
   function checkConversation() {
     return perform(
       'reconcile',
-      async (context) => {
-        const [page, latest] = await Promise.all([
-          history({ sessionId: context.sessionId, signal: context.signal }),
-          cart({ sessionId: context.sessionId, signal: context.signal }),
-        ])
-        if (!context.active()) return
-        const state = getState()
-        const turn = state.pendingTurn
-        const completed =
-          turn &&
-          page.messages.some(
-            (message) =>
-              message.role === 'ASSISTANT' &&
-              message.requestId === turn.requestId &&
-              message.requestStatus === 'COMPLETED',
-          )
-        const busy = hasPendingHistory(page.messages)
-        const error = completed
-          ? null
-          : turn
-            ? {
-                message: busy
-                  ? 'The service is still processing a message. Check again in a moment.'
-                  : 'No completed reply was found. You can retry your original message safely.',
-                retryable: !busy,
-                blocked: true,
-              }
-            : null
-        publish({
-          messages: mergeMessages(state.messages, page.messages),
-          cart: latest,
-          cartNeedsRefresh: false,
-          chatError: error,
-          pendingTurn: completed ? null : turn,
-          notice: busy
-            ? 'A previous message is still processing. Check again before continuing.'
-            : 'Your conversation and cart are up to date.',
-        })
-      },
+      (context) => readConversation(context, getState().pendingTurn),
       (error) =>
         publish({
           chatError: {
@@ -354,7 +423,7 @@ export function createConversationActions({
             retryable: Boolean(
               getState().pendingTurn && getState().chatError?.retryable,
             ),
-            blocked: true,
+            blocked: Boolean(getState().pendingTurn),
           },
         }),
     )
@@ -367,6 +436,7 @@ export function createConversationActions({
     retryCart,
     refreshCart,
     checkConversation,
+    loadEarlier,
     cancel() {
       if (!operation) return
       const previous = operation

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Send, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -19,11 +19,21 @@ const suggestions = [
 
 export function ChatComposer({ disabled, onSend, showSuggestions }) {
   const [draft, setDraft] = useState('')
+  const inputRef = useRef(null)
+  const restoreFocus = useRef(false)
+  useEffect(() => {
+    if (!disabled && restoreFocus.current) {
+      if (document.activeElement === document.body)
+        inputRef.current?.focus({ preventScroll: true })
+      restoreFocus.current = false
+    }
+  }, [disabled])
   const text = draft.trim()
   function submit(event) {
     event.preventDefault()
     if (disabled || !text || text.length > 2000) return
     setDraft('')
+    restoreFocus.current = true
     void onSend(text)
   }
   return (
@@ -54,6 +64,7 @@ export function ChatComposer({ disabled, onSend, showSuggestions }) {
         </label>
         <textarea
           id="chat-message"
+          ref={inputRef}
           rows={3}
           maxLength={2000}
           value={draft}

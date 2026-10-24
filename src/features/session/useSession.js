@@ -18,5 +18,6 @@ export function useSession() {
     retryCart: store.retryCart,
     refreshCart: store.refreshCart,
     checkConversation: store.checkConversation,
+    loadEarlier: store.loadEarlier,
   }
 }

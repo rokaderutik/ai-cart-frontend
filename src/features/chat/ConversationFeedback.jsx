@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 
 export function ConversationFeedback({
   error,
@@ -7,6 +8,8 @@ export function ConversationFeedback({
   busy,
   onRetry,
   onCheck,
+  onResubmit,
+  canResubmit,
 }) {
   if (!error && !historyPending) return null
   return (
@@ -18,11 +21,13 @@ export function ConversationFeedback({
         {error?.message ||
           'A previous message is still processing. Check the conversation before continuing.'}
       </p>
-      {(pending || historyPending) && (
+      {(pending || historyPending || error?.resubmitText) && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {pending && error?.retryable && (
+          {pending && (error?.retryable || error?.resumeAllowed) && (
             <Button size="sm" disabled={busy} onClick={() => void onRetry()}>
-              Retry message
+              {error?.resumeAllowed
+                ? 'Recover original request'
+                : 'Retry message'}
             </Button>
           )}
           <Button
@@ -33,6 +38,26 @@ export function ConversationFeedback({
           >
             Check conversation
           </Button>
+        </div>
+      )}
+      {error?.resubmitText && (
+        <div className="mt-3">
+          <ConfirmDialog
+            title="Send this as a new message?"
+            description={`This creates a new request and may change your cart. Only continue if you want to send it again: ${error.resubmitText}`}
+            actionLabel="Send new message"
+            cancelLabel="Cancel"
+            onConfirm={() => void onResubmit(error.resubmitText)}
+            trigger={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !canResubmit}
+              >
+                Send as new message
+              </Button>
+            }
+          />
         </div>
       )}
     </div>

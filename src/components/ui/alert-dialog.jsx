@@ -8,6 +8,7 @@ export function ConfirmDialog({
   description,
   actionLabel,
   onConfirm,
+  cancelLabel = 'Keep conversation',
 }) {
   return (
     <AlertDialogPrimitive.Root>
@@ -16,7 +17,7 @@ export function ConfirmDialog({
       </AlertDialogPrimitive.Trigger>
       <AlertDialogPrimitive.Portal>
         <AlertDialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35" />
-        <AlertDialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-card p-6 shadow-xl">
+        <AlertDialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85svh] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border bg-card p-6 shadow-xl">
           <AlertDialogPrimitive.Title className="text-lg font-semibold">
             {title}
           </AlertDialogPrimitive.Title>
@@ -25,7 +26,7 @@ export function ConfirmDialog({
           </AlertDialogPrimitive.Description>
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <AlertDialogPrimitive.Cancel asChild>
-              <Button variant="outline">Keep conversation</Button>
+              <Button variant="outline">{cancelLabel}</Button>
             </AlertDialogPrimitive.Cancel>
             <AlertDialogPrimitive.Action asChild>
               <Button onClick={onConfirm}>{actionLabel}</Button>

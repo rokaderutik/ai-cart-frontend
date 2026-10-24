@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "playwright test",
+    "smoke:deployment": "node scripts/smoke-deployment.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
