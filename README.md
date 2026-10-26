@@ -1,11 +1,48 @@
 # AI Cart frontend
 
-A restaurant assistant for discovering dishes, inspecting recommendation sources, and building a shared cart through conversation or UI controls.
+[Live demo](https://ai-cart-frontend.vercel.app) · [Backend health](https://ai-cart-backend.onrender.com/api/v1/health) · [Backend repository](https://github.com/rokaderutik/ai-cart-backend) · [Frontend repository](https://github.com/rokaderutik/ai-cart-frontend)
 
-- Frontend repository: https://github.com/rokaderutik/ai-cart-frontend
-- Backend: https://ai-cart-backend.onrender.com
-- Published frontend: https://ai-cart-frontend.vercel.app
-- Hosting: Vercel. Local changes require a separate commit/push/deployment.
+A React 19 restaurant assistant for discovering dishes, inspecting recommendation sources, and building a shared cart through conversation or UI controls. Vite builds the frontend deployed on Vercel; Spring Boot on Render owns retrieval, Gemini calls and Neon PostgreSQL/pgvector.
+
+Anonymous sessions expire **24 hours after creation**. Only the session token is kept in `sessionStorage`; the backend stores history and the cart. Refresh restores the conversation in the same tab while that session remains valid. This is a fictional restaurant with no checkout or payments.
+
+Try this conversation:
+
+> Suggest at least two mild vegetarian main dishes up to 300 rupees.
+>
+> Which of those is less spicy?
+>
+> Add one Malai Kofta.
+>
+> Make that two.
+
+Use a dish actually returned by the current menu. [76-second real demo](https://github.com/rokaderutik/ai-cart-backend/blob/main/docs/media/ai-cart-demo.webm) · [Walkthrough and captions](https://github.com/rokaderutik/ai-cart-backend/blob/main/docs/demo.md)
+
+![Live recommendations and shared cart](docs/media/chat-cart.png)
+
+<details>
+<summary>Evidence panel and mobile cart</summary>
+
+![Inspectable restaurant evidence](docs/media/evidence.png)
+
+<img src="docs/media/mobile-cart.png" alt="Mobile cart with two Malai Kofta portions" width="390">
+
+</details>
+
+## System overview and measured quality
+
+```mermaid
+flowchart LR
+    UI[React on Vercel] -->|HTTPS /api/v1| API[Spring Boot on Render]
+    API --> AI[Gemini via Spring AI]
+    API --> DB[(Neon PostgreSQL + pgvector)]
+```
+
+The UI waits for backend readiness, opens an anonymous session, renders source-backed replies and recommendation cards, and reconciles chat/manual cart updates against backend state. Credentials remain on the backend. [Architecture and ingestion](https://github.com/rokaderutik/ai-cart-backend/blob/main/docs/architecture.md) · [API integration contract](https://github.com/rokaderutik/ai-cart-backend/blob/main/FRONTEND-API.md).
+
+The repeated 20-case deployed **dev / gemini-3.5-flash-lite** evaluation returned 15/20 HTTP replies (75%); five failed model-output validation, and some returned answers were incomplete. Retrieval found 12/12 labeled menu sources and 8/8 guide sources; a Java debugging question also exposed a guide false positive. These small-set measurements are not a general AI accuracy score. [Results and limitations](https://github.com/rokaderutik/ai-cart-backend/blob/main/docs/evaluation/README.md) · [Portfolio and resume notes](https://github.com/rokaderutik/ai-cart-backend/blob/main/docs/portfolio.md).
+
+Hosting: Vercel. Documentation/media changes require this repository's own commit/push; backend-linked artifacts require publication in the backend repository too.
 
 ## Current phase
 
@@ -211,4 +248,4 @@ Frontend implementation, local connectivity, and the deployed skeleton's fronten
 
 The detailed `AI-Cart-Development-Phases.txt` roadmap is local and ignored by Git at the user’s request. This README preserves the shared frontend decisions. Confirm later API paths with the backend rather than assuming the health endpoint’s version prefix applies everywhere.
 
-The frontend integration stages are implemented and deployed, and the live Stage 4 integration checks passed. Continue running CI and the deployment smoke check for future revisions. Docker image validation remains necessary if container hosting is used. Backend RAG evaluation/results and portfolio materials remain separate roadmap work. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP.
+The frontend integration stages are implemented and deployed, and the live Stage 4 integration checks passed. Continue running CI and the deployment smoke check for future revisions. Docker image validation remains necessary if container hosting is used. Backend RAG evaluation/results and portfolio materials are documented in the linked backend repository; newly prepared documentation and media require a separate commit/push in each repository. Authentication, payments, admin screens, multiple restaurants, and WebSockets remain outside the MVP.
